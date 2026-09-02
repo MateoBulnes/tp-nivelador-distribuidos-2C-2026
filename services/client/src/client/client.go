@@ -94,7 +94,6 @@ func (client *Client) Run() (err error) {
 	return nil
 }
 
-
 func (client *Client) exchangeBets(reader *bets.Reader, writer *bets.Writer) (int, error) {
 	betsAmount := 0
 

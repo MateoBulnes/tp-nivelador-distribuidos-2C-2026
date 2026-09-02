@@ -5,9 +5,8 @@ import (
 	"os"
 )
 
-
 type Writer struct {
-	file *os.File
+	file   *os.File
 	buffer []byte
 }
 
