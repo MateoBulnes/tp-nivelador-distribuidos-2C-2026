@@ -1,33 +1,54 @@
 package main
 
 import (
-	"errors"
+	"fmt"
 	"os"
 
 	client "github.com/7574-sistemas-distribuidos/tp-nivelador/src/client"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
 )
 
+func requiredEnv(key string) (string, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return "", fmt.Errorf("%s environment variable is required", key)
+	}
+
+	return value, nil
+}
+
 func loadConfig() (client.ClientConfig, error) {
-	agencyId := os.Getenv("AGENCY_ID")
-	if agencyId == "" {
-		return client.ClientConfig{}, errors.New("AGENCY_ID environment variable is required")
+	agencyId, err := requiredEnv("AGENCY_ID")
+	if err != nil {
+		return client.ClientConfig{}, err
 	}
 
-	serverHost := os.Getenv("SERVER_HOST")
-	if serverHost == "" {
-		return client.ClientConfig{}, errors.New("SERVER_HOST environment variable is required")
+	serverHost, err := requiredEnv("SERVER_HOST")
+	if err != nil {
+		return client.ClientConfig{}, err
 	}
 
-	serverPort := os.Getenv("SERVER_PORT")
-	if serverPort == "" {
-		return client.ClientConfig{}, errors.New("SERVER_PORT environment variable is required")
+	serverPort, err := requiredEnv("SERVER_PORT")
+	if err != nil {
+		return client.ClientConfig{}, err
+	}
+
+	inputFile, err := requiredEnv("INPUT_FILE")
+	if err != nil {
+		return client.ClientConfig{}, err
+	}
+
+	outputFile, err := requiredEnv("OUTPUT_FILE")
+	if err != nil {
+		return client.ClientConfig{}, err
 	}
 
 	return client.ClientConfig{
 		ServerHost: serverHost,
 		ServerPort: serverPort,
 		AgencyId:   agencyId,
+		InputFile:  inputFile,
+		OutputFile: outputFile,
 	}, nil
 }
 
