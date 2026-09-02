@@ -1,1 +1,1 @@
-from .safe_socket import recv_all, send_all
+from .safe_socket import ConnectionClosedError, recv_all, send_all
