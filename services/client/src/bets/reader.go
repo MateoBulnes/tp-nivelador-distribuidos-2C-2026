@@ -21,7 +21,7 @@ func NewReader(path string) (*Reader, error) {
 
 func (reader *Reader) Next() bool {
 	for reader.scanner.Scan() {
-		if reader.scanner.Text() == "" {
+		if len(reader.scanner.Bytes()) == 0 {
 			continue
 		}
 		return true
@@ -30,8 +30,8 @@ func (reader *Reader) Next() bool {
 	return false
 }
 
-func (reader *Reader) Record() []byte {
-	return reader.scanner.Bytes()
+func (reader *Reader) Bet() (Bet, error) {
+	return parseRecord(reader.scanner.Bytes())
 }
 
 func (reader *Reader) Err() error {

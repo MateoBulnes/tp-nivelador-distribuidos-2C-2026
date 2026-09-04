@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"os"
+	"strconv"
 
 	client "github.com/7574-sistemas-distribuidos/tp-nivelador/src/client"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
@@ -17,8 +19,25 @@ func requiredEnv(key string) (string, error) {
 	return value, nil
 }
 
+func requiredEnvUint16(key string) (uint16, error) {
+	value, err := requiredEnv(key)
+	if err != nil {
+		return 0, err
+	}
+
+	parsed, err := strconv.ParseUint(value, 10, 16)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"%s must be an integer between 0 and %d: %w",
+			key, math.MaxUint16, err,
+		)
+	}
+
+	return uint16(parsed), nil
+}
+
 func loadConfig() (client.ClientConfig, error) {
-	agencyId, err := requiredEnv("AGENCY_ID")
+	agencyId, err := requiredEnvUint16("AGENCY_ID")
 	if err != nil {
 		return client.ClientConfig{}, err
 	}

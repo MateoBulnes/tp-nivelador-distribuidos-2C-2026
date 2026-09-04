@@ -3,6 +3,7 @@ package bets
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 type Writer struct {
@@ -11,6 +12,8 @@ type Writer struct {
 }
 
 func NewWriter(path string) (*Writer, error) {
+	// Se trunca el archivo para que una corrida no deje sus registros pegados
+	// a los de la anterior.
 	file, err := os.Create(path)
 	if err != nil {
 		return nil, err
@@ -19,8 +22,16 @@ func NewWriter(path string) (*Writer, error) {
 	return &Writer{file: file}, nil
 }
 
-func (writer *Writer) WriteRecord(record []byte) error {
-	writer.buffer = append(writer.buffer[:0], record...)
+func (writer *Writer) WriteBet(bet Bet) error {
+	writer.buffer = append(writer.buffer[:0], bet.FirstName...)
+	writer.buffer = append(writer.buffer, ',')
+	writer.buffer = append(writer.buffer, bet.LastName...)
+	writer.buffer = append(writer.buffer, ',')
+	writer.buffer = strconv.AppendUint(writer.buffer, uint64(bet.Document), 10)
+	writer.buffer = append(writer.buffer, ',')
+	writer.buffer = append(writer.buffer, bet.Birthdate...)
+	writer.buffer = append(writer.buffer, ',')
+	writer.buffer = strconv.AppendUint(writer.buffer, uint64(bet.Number), 10)
 	writer.buffer = append(writer.buffer, '\n')
 
 	written, err := writer.file.Write(writer.buffer)
