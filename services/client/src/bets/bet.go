@@ -8,7 +8,6 @@ import (
 const recordFieldsAmount = 5
 const maxTextFieldSize = 255
 
-
 type Bet struct {
 	FirstName []byte
 	LastName  []byte

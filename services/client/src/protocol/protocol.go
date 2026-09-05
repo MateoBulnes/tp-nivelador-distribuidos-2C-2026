@@ -1,4 +1,3 @@
-
 package protocol
 
 import (
@@ -12,7 +11,7 @@ import (
 
 const (
 	msgHello    byte = 0x01
-	msgBet      byte = 0x02
+	msgBatch    byte = 0x02
 	msgAck      byte = 0x03
 	msgFinished byte = 0x04
 	msgWinners  byte = 0x05
@@ -20,20 +19,23 @@ const (
 )
 
 const (
-	uint16Size = 2
-	uint32Size = 4
-	headerSize = 1 + uint32Size
+	uint16Size     = 2
+	uint32Size     = 4
+	headerSize     = 1 + uint32Size
 	maxPayloadSize = 64 * 1024
-	minBetSize = 3 + 2*uint32Size
+	minBetSize     = 3 + 2*uint32Size
+	batchCountSize = uint32Size
 )
 
 type Protocol struct {
 	conn io.ReadWriter
 	buf  []byte
+	batchSize int
+	batchBets int
 }
 
-func New(conn io.ReadWriter) *Protocol {
-	return &Protocol{conn: conn}
+func New(conn io.ReadWriter, batchSize int) *Protocol {
+	return &Protocol{conn: conn, batchSize: batchSize}
 }
 
 func (protocol *Protocol) SendHello(agencyId uint16) error {
@@ -42,14 +44,48 @@ func (protocol *Protocol) SendHello(agencyId uint16) error {
 	return protocol.endMessage()
 }
 
-func (protocol *Protocol) SendBet(bet bets.Bet) error {
+func (protocol *Protocol) BeginBatch() {
+	protocol.beginMessage(msgBatch)
+	protocol.buf = appendUint32(protocol.buf, 0)
+	protocol.batchBets = 0
+}
+
+func (protocol *Protocol) AddBet(bet bets.Bet) (bool, error) {
 	if err := bet.Validate(); err != nil {
-		return err
+		return false, err
 	}
 
-	protocol.beginMessage(msgBet)
-	protocol.buf = appendBet(protocol.buf, bet)
+	if protocol.batchBets < protocol.batchSize && protocol.betFits(bet) {
+		protocol.buf = appendBet(protocol.buf, bet)
+		protocol.batchBets++
+		return true, nil
+	}
+
+	if protocol.BatchIsEmpty() {
+		return false, fmt.Errorf(
+			"a bet of %d bytes does not fit in an empty batch, whose payload is limited to %d bytes",
+			betSize(bet), maxPayloadSize,
+		)
+	}
+
+	return false, nil
+}
+
+func (protocol *Protocol) BatchIsEmpty() bool {
+	return protocol.batchBets == 0
+}
+
+func (protocol *Protocol) SendBatch() error {
+	binary.BigEndian.PutUint32(
+		protocol.buf[headerSize:headerSize+batchCountSize],
+		uint32(protocol.batchBets),
+	)
 	return protocol.endMessage()
+}
+
+func (protocol *Protocol) betFits(bet bets.Bet) bool {
+	payloadSize := len(protocol.buf) - headerSize
+	return payloadSize+betSize(bet) <= maxPayloadSize
 }
 
 func (protocol *Protocol) SendFinished() error {
@@ -145,6 +181,10 @@ func appendUint32(dst []byte, value uint32) []byte {
 func appendText(dst []byte, text []byte) []byte {
 	dst = append(dst, byte(len(text)))
 	return append(dst, text...)
+}
+
+func betSize(bet bets.Bet) int {
+	return minBetSize + len(bet.FirstName) + len(bet.LastName) + len(bet.Birthdate)
 }
 
 func appendBet(dst []byte, bet bets.Bet) []byte {

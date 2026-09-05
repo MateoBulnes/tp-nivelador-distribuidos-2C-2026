@@ -4,7 +4,7 @@ import safe_socket
 from lottery import Bet
 
 MSG_HELLO = 0x01
-MSG_BET = 0x02
+MSG_BATCH = 0x02
 MSG_ACK = 0x03
 MSG_FINISHED = 0x04
 MSG_WINNERS = 0x05
@@ -23,8 +23,11 @@ _MAX_PAYLOAD_SIZE = 64 * 1024
 
 _MAX_TEXT_FIELD_SIZE = 255
 
+_MIN_BET_SIZE = 3 + 2 * _UINT32_SIZE
+
 
 class ProtocolError(Exception):
+    """El peer violo el protocolo de comunicacion."""
 
 
 def send_message(sock: socket.socket, msg_type: int, payload: bytes = b"") -> None:
@@ -60,14 +63,27 @@ def decode_hello(payload: bytes) -> int:
     return agency_id
 
 
-def decode_bet(payload: bytes, agency_id: int) -> Bet:
+def decode_batch(payload: bytes, agency_id: int) -> list[Bet]:
     decoder = _Decoder(payload)
+    amount = decoder.uint32()
+
+    max_amount = (len(payload) - _UINT32_SIZE) // _MIN_BET_SIZE
+    if amount > max_amount:
+        raise ProtocolError(
+            f"batch announces {amount} bets but its payload holds at most {max_amount}"
+        )
+
+    bets = [_decode_bet(decoder, agency_id) for _ in range(amount)]
+    decoder.expect_end()
+    return bets
+
+
+def _decode_bet(decoder: "_Decoder", agency_id: int) -> Bet:
     first_name = decoder.text()
     last_name = decoder.text()
     document = decoder.uint32()
     birthdate = decoder.text()
     number = decoder.uint32()
-    decoder.expect_end()
 
     return Bet(agency_id, first_name, last_name, document, birthdate, number)
 

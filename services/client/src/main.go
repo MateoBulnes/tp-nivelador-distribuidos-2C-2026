@@ -36,6 +36,24 @@ func requiredEnvUint16(key string) (uint16, error) {
 	return uint16(parsed), nil
 }
 
+func requiredEnvPositiveInt(key string) (int, error) {
+	value, err := requiredEnv(key)
+	if err != nil {
+		return 0, err
+	}
+
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
+	}
+
+	if parsed < 1 {
+		return 0, fmt.Errorf("%s must be greater than zero, got %d", key, parsed)
+	}
+
+	return parsed, nil
+}
+
 func loadConfig() (client.ClientConfig, error) {
 	agencyId, err := requiredEnvUint16("AGENCY_ID")
 	if err != nil {
@@ -62,12 +80,18 @@ func loadConfig() (client.ClientConfig, error) {
 		return client.ClientConfig{}, err
 	}
 
+	batchSize, err := requiredEnvPositiveInt("BATCH_SIZE")
+	if err != nil {
+		return client.ClientConfig{}, err
+	}
+
 	return client.ClientConfig{
 		ServerHost: serverHost,
 		ServerPort: serverPort,
 		AgencyId:   agencyId,
 		InputFile:  inputFile,
 		OutputFile: outputFile,
+		BatchSize:  batchSize,
 	}, nil
 }
 

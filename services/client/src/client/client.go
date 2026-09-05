@@ -18,6 +18,7 @@ type ClientConfig struct {
 	AgencyId   uint16
 	InputFile  string
 	OutputFile string
+	BatchSize  int
 }
 
 type Client struct {
@@ -61,7 +62,7 @@ func connectToServer(host, port string) (net.Conn, error) {
 func (client *Client) Run() error {
 	defer client.conn.Close()
 
-	proto := protocol.New(client.conn)
+	proto := protocol.New(client.conn, client.config.BatchSize)
 
 	if err := proto.SendHello(client.config.AgencyId); err != nil {
 		logger.Error("send-hello", logger.Fail, "agency-id", client.config.AgencyId, "err", err)
@@ -93,36 +94,71 @@ func (client *Client) sendBets(proto *protocol.Protocol) error {
 
 	logger.Info(action, logger.InProgress, agencyArgs...)
 
+	betsAmount, batchesAmount, err := exchangeBets(proto, reader)
+	amountArgs := append(agencyArgs, "bets-amount", betsAmount, "batches-amount", batchesAmount)
+	if err != nil {
+		logger.Error(action, logger.Fail, append(amountArgs, "err", err)...)
+		return err
+	}
+
+	logger.Info(action, logger.Success, amountArgs...)
+	return nil
+}
+
+func exchangeBets(proto *protocol.Protocol, reader *bets.Reader) (int, int, error) {
 	betsAmount := 0
-	for reader.Next() {
-		if err := exchangeBet(proto, reader); err != nil {
-			logger.Error(action, logger.Fail, append(agencyArgs, "bets-amount", betsAmount, "err", err)...)
+	batchesAmount := 0
+
+	sendBatch := func() error {
+		if err := proto.SendBatch(); err != nil {
 			return err
+		}
+
+		if err := proto.RecvAck(); err != nil {
+			return err
+		}
+
+		batchesAmount++
+		proto.BeginBatch()
+		return nil
+	}
+
+	proto.BeginBatch()
+	for reader.Next() {
+		bet, err := reader.Bet()
+		if err != nil {
+			return betsAmount, batchesAmount, err
+		}
+
+		added, err := proto.AddBet(bet)
+		if err != nil {
+			return betsAmount, batchesAmount, err
+		}
+
+		if !added {
+			if err := sendBatch(); err != nil {
+				return betsAmount, batchesAmount, err
+			}
+
+			if _, err := proto.AddBet(bet); err != nil {
+				return betsAmount, batchesAmount, err
+			}
 		}
 
 		betsAmount++
 	}
 
 	if err := reader.Err(); err != nil {
-		logger.Error(action, logger.Fail, append(agencyArgs, "bets-amount", betsAmount, "err", err)...)
-		return err
+		return betsAmount, batchesAmount, err
 	}
 
-	logger.Info(action, logger.Success, append(agencyArgs, "bets-amount", betsAmount)...)
-	return nil
-}
-
-func exchangeBet(proto *protocol.Protocol, reader *bets.Reader) error {
-	bet, err := reader.Bet()
-	if err != nil {
-		return err
+	if !proto.BatchIsEmpty() {
+		if err := sendBatch(); err != nil {
+			return betsAmount, batchesAmount, err
+		}
 	}
 
-	if err := proto.SendBet(bet); err != nil {
-		return err
-	}
-
-	return proto.RecvAck()
+	return betsAmount, batchesAmount, nil
 }
 
 func (client *Client) recvWinners(proto *protocol.Protocol) ([]bets.Bet, error) {

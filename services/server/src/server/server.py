@@ -84,14 +84,15 @@ class Server:
             if msg_type == protocol.MSG_FINISHED:
                 return bets_amount
 
-            if msg_type != protocol.MSG_BET:
+            if msg_type != protocol.MSG_BATCH:
                 raise protocol.ProtocolError(
-                    f"expected a bet or a finished message, got type {msg_type:#04x}"
+                    f"expected a batch or a finished message, got type {msg_type:#04x}"
                 )
 
-            self.lottery.store_bets([protocol.decode_bet(payload, agency_id)])
+            bets = protocol.decode_batch(payload, agency_id)
+            self.lottery.store_bets(bets)
             protocol.send_message(client_socket, protocol.MSG_ACK)
-            bets_amount += 1
+            bets_amount += len(bets)
 
     def _send_winners(self, client_socket: socket.socket, agency_id: int) -> None:
         action = "draw-winners"
