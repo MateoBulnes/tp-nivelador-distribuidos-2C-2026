@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"net"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 const CONNECTION_ATTEMPTS_MAX = 15
 const CONNECTION_ATTEMPS_DELAY_MS = 200
 
+var ErrShutdown = errors.New("shutdown requested")
+
 type ClientConfig struct {
 	ServerHost string
 	ServerPort string
@@ -22,22 +25,25 @@ type ClientConfig struct {
 }
 
 type Client struct {
-	conn   net.Conn
-	config ClientConfig
+	conn     net.Conn
+	config   ClientConfig
+	shutdown <-chan struct{}
 }
 
-func NewClient(config ClientConfig) (*Client, error) {
-	conn, err := connectToServer(config.ServerHost, config.ServerPort)
+func NewClient(config ClientConfig, shutdown <-chan struct{}) (*Client, error) {
+	conn, err := connectToServer(config.ServerHost, config.ServerPort, shutdown)
 	if err != nil {
-		logger.Warn("connect-to-server", logger.Fail)
+		if !errors.Is(err, ErrShutdown) {
+			logger.Warn("connect-to-server", logger.Fail)
+		}
 		return nil, err
 	}
 
-	client := &Client{conn: conn, config: config}
+	client := &Client{conn: conn, config: config, shutdown: shutdown}
 	return client, nil
 }
 
-func connectToServer(host, port string) (net.Conn, error) {
+func connectToServer(host, port string, shutdown <-chan struct{}) (net.Conn, error) {
 	const action = "connect-to-server"
 	var err error
 	var conn net.Conn
@@ -52,7 +58,11 @@ func connectToServer(host, port string) (net.Conn, error) {
 
 		logger.Warn(action, logger.Fail, "attempt", attempt)
 		if attempt < CONNECTION_ATTEMPTS_MAX-1 {
-			time.Sleep(CONNECTION_ATTEMPS_DELAY_MS * time.Millisecond)
+			select {
+			case <-time.After(CONNECTION_ATTEMPS_DELAY_MS * time.Millisecond):
+			case <-shutdown:
+				return nil, ErrShutdown
+			}
 		}
 	}
 
@@ -62,10 +72,23 @@ func connectToServer(host, port string) (net.Conn, error) {
 func (client *Client) Run() error {
 	defer client.conn.Close()
 
+	done := make(chan struct{})
+	defer close(done)
+	go client.watchShutdown(done)
+
+	err := client.exchange()
+	if err != nil && client.shutdownRequested() {
+		return ErrShutdown
+	}
+
+	return err
+}
+
+func (client *Client) exchange() error {
 	proto := protocol.New(client.conn, client.config.BatchSize)
 
 	if err := proto.SendHello(client.config.AgencyId); err != nil {
-		logger.Error("send-hello", logger.Fail, "agency-id", client.config.AgencyId, "err", err)
+		client.logFailure("send-hello", err, "agency-id", client.config.AgencyId)
 		return err
 	}
 
@@ -81,13 +104,40 @@ func (client *Client) Run() error {
 	return client.storeWinners(winners)
 }
 
+func (client *Client) watchShutdown(done <-chan struct{}) {
+	select {
+	case <-client.shutdown:
+		if err := client.conn.SetDeadline(time.Now()); err != nil {
+			logger.Error("shutdown-connection", logger.Fail, "err", err)
+		}
+	case <-done:
+	}
+}
+
+func (client *Client) shutdownRequested() bool {
+	select {
+	case <-client.shutdown:
+		return true
+	default:
+		return false
+	}
+}
+
+func (client *Client) logFailure(action string, err error, args ...any) {
+	if client.shutdownRequested() {
+		return
+	}
+
+	logger.Error(action, logger.Fail, append(args, "err", err)...)
+}
+
 func (client *Client) sendBets(proto *protocol.Protocol) error {
 	const action = "send-bets"
 	agencyArgs := []any{"agency-id", client.config.AgencyId}
 
 	reader, err := bets.NewReader(client.config.InputFile)
 	if err != nil {
-		logger.Error(action, logger.Fail, append(agencyArgs, "err", err)...)
+		client.logFailure(action, err, agencyArgs...)
 		return err
 	}
 	defer reader.Close()
@@ -97,7 +147,7 @@ func (client *Client) sendBets(proto *protocol.Protocol) error {
 	betsAmount, batchesAmount, err := exchangeBets(proto, reader)
 	amountArgs := append(agencyArgs, "bets-amount", betsAmount, "batches-amount", batchesAmount)
 	if err != nil {
-		logger.Error(action, logger.Fail, append(amountArgs, "err", err)...)
+		client.logFailure(action, err, amountArgs...)
 		return err
 	}
 
@@ -168,13 +218,13 @@ func (client *Client) recvWinners(proto *protocol.Protocol) ([]bets.Bet, error) 
 	logger.Info(action, logger.InProgress, agencyArgs...)
 
 	if err := proto.SendFinished(); err != nil {
-		logger.Error(action, logger.Fail, append(agencyArgs, "err", err)...)
+		client.logFailure(action, err, agencyArgs...)
 		return nil, err
 	}
 
 	winners, err := proto.RecvWinners()
 	if err != nil {
-		logger.Error(action, logger.Fail, append(agencyArgs, "err", err)...)
+		client.logFailure(action, err, agencyArgs...)
 		return nil, err
 	}
 
@@ -187,7 +237,7 @@ func (client *Client) storeWinners(winners []bets.Bet) (err error) {
 
 	writer, err := bets.NewWriter(client.config.OutputFile)
 	if err != nil {
-		logger.Error(action, logger.Fail, "err", err)
+		client.logFailure(action, err)
 		return err
 	}
 
@@ -199,7 +249,7 @@ func (client *Client) storeWinners(winners []bets.Bet) (err error) {
 
 	for _, winner := range winners {
 		if err := writer.WriteBet(winner); err != nil {
-			logger.Error(action, logger.Fail, "err", err)
+			client.logFailure(action, err)
 			return err
 		}
 	}

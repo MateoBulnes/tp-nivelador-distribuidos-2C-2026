@@ -1,4 +1,5 @@
 import os
+import signal
 import sys
 import tempfile
 
@@ -41,6 +42,32 @@ def load_config() -> tuple[str, int, int]:
     )
 
 
+def run_server(server_host: str, server_port: int, quorum_min: int, storage_path: str) -> int:
+    try:
+        s = server.Server(
+            server_host,
+            server_port,
+            server.BetStore(Lottery(storage_path)),
+            server.AgencyQuorum(quorum_min),
+        )
+    except Exception as e:
+        logger.error("server-new", logger.LogResult.fail, "err", e)
+        return 1
+
+    signal.signal(signal.SIGTERM, lambda signum, frame: s.request_shutdown())
+
+    try:
+        s.run()
+    except Exception as e:
+        logger.error("server-run", logger.LogResult.fail, "err", e)
+        return 1
+    finally:
+        s.close()
+
+    logger.info("graceful-shutdown", logger.LogResult.success)
+    return 0
+
+
 def main():
     logger.init()
 
@@ -54,20 +81,9 @@ def main():
     os.close(storage_fd)
 
     try:
-        s = server.Server(
-            server_host,
-            server_port,
-            server.BetStore(Lottery(storage_path)),
-            server.AgencyQuorum(agency_quorum_min),
-        )
-        s.run()
-    except Exception as e:
-        logger.error("server-run", logger.LogResult.fail, "err", e)
-        return 1
+        return run_server(server_host, server_port, agency_quorum_min, storage_path)
     finally:
         os.remove(storage_path)
-
-    return 0
 
 
 if __name__ == "__main__":
