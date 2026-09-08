@@ -28,8 +28,8 @@ const (
 )
 
 type Protocol struct {
-	conn io.ReadWriter
-	buf  []byte
+	conn      io.ReadWriter
+	buf       []byte
 	batchSize int
 	batchBets int
 }
