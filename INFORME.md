@@ -342,15 +342,3 @@ configuradas dejaría al sistema esperando indefinidamente un sorteo que no pued
 **La ausencia de archivos de entrada se advierte pero no interrumpe la generación.** Si se piden más
 clientes que archivos disponibles en `input/`, el script lo informa por la salida de error y genera
 el archivo igual, dado que el enunciado admite que esos archivos varíen.
-
-**Criterio de aceptación.** Generar con cinco clientes debe producir un archivo idéntico al
-`docker-compose.yaml` versionado, lo que demuestra que el script es equivalente a la configuración
-que ya supera las pruebas automáticas:
-
-```bash
-./generate-compose.py /tmp/compose-5.yaml 5 && diff docker-compose.yaml /tmp/compose-5.yaml
-```
-
-El resultado es una diferencia vacía. Se verificó además la ejecución completa del sistema con uno y
-con tres clientes, en ambos casos con todos los procesos terminando correctamente y con los archivos
-de salida conteniendo exactamente los ganadores de cada agencia.
