@@ -40,6 +40,10 @@ class Server:
         """Pide el cierre del servidor. Corre dentro del handler de SIGTERM."""
         self._shutdown.set()
 
+        # Unico lugar donde no se contrasta la cantidad escrita a un
+        # descriptor, y es porque no puede diferir de la pedida: POSIX garantiza
+        # que una escritura de un solo byte a un pipe es atomica, de modo que o
+        # se escribe entera o la llamada falla.
         try:
             os.write(self._wakeup_writer, b"\0")
         except OSError:
@@ -133,8 +137,6 @@ class Server:
         try:
             client_socket.shutdown(socket.SHUT_RDWR)
         except OSError:
-            # El peer ya cerro su lado: la conexion ya esta rota, que es
-            # justamente el efecto que se buscaba.
             pass
 
     def _close_connection(self, connection: _ClientConnection) -> None:
@@ -260,9 +262,16 @@ class Server:
 
     @staticmethod
     def _notify_error(client_socket: socket.socket, error: Exception) -> None:
+        """Intenta avisarle al cliente que su conexion fallo.
+
+        Es un aviso de best effort: se llega aca porque algo ya salio mal, y
+        lo mas probable es que lo que haya fallado sea la conexion misma.
+        """
         try:
             protocol.send_message(
                 client_socket, protocol.MSG_ERROR, str(error).encode("utf-8")
             )
         except Exception:
+            # Si el aviso tampoco se puede enviar no queda nada por hacer: el
+            # error original ya quedo registrado y la conexion se cierra igual.
             pass
